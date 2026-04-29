@@ -1,6 +1,7 @@
 const sequelize = require('../config/db');
 const { DB_SYNC_ALTER, DB_SYNC_FORCE, ALLOW_DB_SYNC } = require('../config/config');
 const logger = require('../config/logger');
+const { findMissingTables } = require('./dbSyncPolicy');
 
 const Role = require('./Role');
 const User = require('./User');
@@ -84,10 +85,37 @@ ImportExportLog.belongsTo(User, { foreignKey: 'user_id' });
 
 
 // DB sync + seed data
+const REQUIRED_TABLES = ['roles', 'users', 'employees', 'refresh_tokens', 'leave_types'];
+
+const getSyncDecision = async () => {
+  await sequelize.authenticate();
+
+  if (ALLOW_DB_SYNC) {
+    return { shouldSync: true, reason: 'ALLOW_DB_SYNC enabled', missingTables: [] };
+  }
+
+  const existingTables = await sequelize.getQueryInterface().showAllTables();
+  const missingTables = findMissingTables(existingTables, REQUIRED_TABLES);
+
+  if (missingTables.length === 0) {
+    return { shouldSync: false, reason: 'required tables already exist', missingTables: [] };
+  }
+
+  return {
+    shouldSync: true,
+    reason: 'required tables are missing',
+    missingTables
+  };
+};
+
 const syncDb = async () => {
-  if (!ALLOW_DB_SYNC) {
-    logger.info({ message: 'DB sync disabled by ALLOW_DB_SYNC=false. Running connection authenticate only.' });
-    await sequelize.authenticate();
+  const syncDecision = await getSyncDecision();
+
+  if (!syncDecision.shouldSync) {
+    logger.info({
+      message: 'Database schema check passed without sync',
+      reason: syncDecision.reason
+    });
     return;
   }
 
@@ -97,6 +125,8 @@ const syncDb = async () => {
 
   logger.info({
     message: 'Running database sync',
+    reason: syncDecision.reason,
+    missingTables: syncDecision.missingTables,
     syncOptions
   });
   await sequelize.sync(syncOptions);

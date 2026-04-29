@@ -3,6 +3,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const logger = require('./config/logger');
 const { CORS_ORIGINS, NODE_ENV } = require('./config/config');
+const { parseAllowedOrigins, isOriginAllowed } = require('./config/cors');
 const { errorHandler } = require('./middlewares/errorMiddleware');
 const requestContextMiddleware = require('./middlewares/requestContextMiddleware');
 const securityHeadersMiddleware = require('./middlewares/securityHeadersMiddleware');
@@ -17,17 +18,16 @@ if (NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-const allowedOrigins = CORS_ORIGINS
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+const allowedOrigins = parseAllowedOrigins(CORS_ORIGINS);
 
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.length === 0) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('CORS origin not allowed'));
+    if (isOriginAllowed(origin, allowedOrigins)) return callback(null, true);
+
+    const error = new Error('CORS origin not allowed');
+    error.statusCode = 403;
+    return callback(error);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
