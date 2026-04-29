@@ -85,15 +85,28 @@ ImportExportLog.belongsTo(User, { foreignKey: 'user_id' });
 
 
 // DB sync + seed data
-const REQUIRED_TABLES = ['roles', 'users', 'employees', 'refresh_tokens', 'leave_types'];
+const TABLE_SYNC_PLAN = [
+  { tableName: 'roles', model: Role },
+  { tableName: 'users', model: User },
+  { tableName: 'employees', model: Employee },
+  { tableName: 'refresh_tokens', model: RefreshToken },
+  { tableName: 'attendance_logs', model: AttendanceLog },
+  { tableName: 'leave_types', model: LeaveType },
+  { tableName: 'leaves', model: Leave },
+  { tableName: 'salary_structure', model: SalaryStructure },
+  { tableName: 'payroll', model: Payroll },
+  { tableName: 'projects', model: Project },
+  { tableName: 'tasks', model: Task },
+  { tableName: 'task_comments', model: TaskComment },
+  { tableName: 'activity_logs', model: ActivityLog },
+  { tableName: 'task_files', model: TaskFile },
+  { tableName: 'import_export_logs', model: ImportExportLog }
+];
+
+const REQUIRED_TABLES = TABLE_SYNC_PLAN.map(({ tableName }) => tableName);
 
 const getSyncDecision = async () => {
   await sequelize.authenticate();
-
-  if (ALLOW_DB_SYNC) {
-    return { shouldSync: true, reason: 'ALLOW_DB_SYNC enabled', missingTables: [] };
-  }
-
   const existingTables = await sequelize.getQueryInterface().showAllTables();
   const missingTables = findMissingTables(existingTables, REQUIRED_TABLES);
 
@@ -103,9 +116,20 @@ const getSyncDecision = async () => {
 
   return {
     shouldSync: true,
-    reason: 'required tables are missing',
+    reason: ALLOW_DB_SYNC
+      ? 'ALLOW_DB_SYNC enabled and required tables are missing'
+      : 'required tables are missing',
     missingTables
   };
+};
+
+const syncMissingTables = async (missingTables, syncOptions) => {
+  const missingTableSet = new Set(missingTables);
+
+  for (const { tableName, model } of TABLE_SYNC_PLAN) {
+    if (!missingTableSet.has(tableName)) continue;
+    await model.sync(syncOptions);
+  }
 };
 
 const syncDb = async () => {
@@ -129,7 +153,11 @@ const syncDb = async () => {
     missingTables: syncDecision.missingTables,
     syncOptions
   });
-  await sequelize.sync(syncOptions);
+  if (DB_SYNC_FORCE || DB_SYNC_ALTER) {
+    await sequelize.sync(syncOptions);
+  } else {
+    await syncMissingTables(syncDecision.missingTables, syncOptions);
+  }
 
   // 1) Roles seed
   const roleCount = await Role.count();

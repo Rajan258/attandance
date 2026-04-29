@@ -13,6 +13,8 @@ const User = sequelize.define('User', {
   underscored: true
 });
 
-User.belongsTo(Role, { foreignKey: 'role_id' });
+// Keep the application-level association without forcing MySQL to recreate
+// a foreign-key constraint on messy legacy/shared schemas during startup sync.
+User.belongsTo(Role, { foreignKey: 'role_id', constraints: false });
 
 module.exports = User;
